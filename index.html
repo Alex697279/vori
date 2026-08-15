@@ -44,7 +44,11 @@
 
 <p id="nowPlaying">Nothing playing.</p>
 
-<audio id="player" controls preload="none"></audio>
+<audio
+    id="player"
+    controls
+    preload="none"
+></audio>
 
 <br><br>
 
@@ -123,7 +127,7 @@ document
                 await fetch(url);
 
             console.log(
-                "Search HTTP status:",
+                "Search status:",
                 response.status
             );
 
@@ -136,7 +140,10 @@ document
             const data =
                 await response.json();
 
-            console.log("Search response:", data);
+            console.log(
+                "Search response:",
+                data
+            );
 
             searchResults =
                 data.results || [];
@@ -198,7 +205,10 @@ function renderResults() {
    PLAY TRACK
 ========================= */
 
-function playTrack(track, index = -1) {
+async function playTrack(
+    track,
+    index = -1
+) {
 
     currentTrack = track;
     currentIndex = index;
@@ -207,7 +217,7 @@ function playTrack(track, index = -1) {
         `${track.track_name} — ${track.artist_name}`;
 
     statusText.textContent =
-        "Loading stream...";
+        "Getting stream information...";
 
     if (track.cover_art_url) {
 
@@ -225,156 +235,267 @@ function playTrack(track, index = -1) {
 
     saveContinueListening(track);
 
-    const streamURL =
-        `${STREAM_API}/${encodeURIComponent(track.unique_id)}`;
-
-    console.log(
-        "Stream URL:",
-        streamURL
-    );
-
     destroyHLS();
 
-    /*
-     * Safari / browsers with native HLS
-     */
 
-    if (
-        player.canPlayType(
-            "application/vnd.apple.mpegurl"
-        )
-    ) {
+    try {
 
-        player.src =
-            streamURL;
+        /*
+         * IMPORTANT:
+         *
+         * /stream/{id} returns JSON metadata.
+         * It is NOT the HLS playlist itself.
+         */
 
-        player.play()
-            .then(() => {
+        const infoURL =
+            `${STREAM_API}/${encodeURIComponent(track.unique_id)}`;
+
+        console.log(
+            "Fetching stream information:",
+            infoURL
+        );
+
+        const response =
+            await fetch(infoURL);
+
+        console.log(
+            "Stream info status:",
+            response.status
+        );
+
+        if (!response.ok) {
+
+            throw new Error(
+                `Stream API returned HTTP ${response.status}`
+            );
+        }
+
+        const data =
+            await response.json();
+
+        console.log(
+            "Stream information:",
+            data
+        );
+
+
+        /*
+         * The API provides the browser-oriented
+         * playback endpoint here.
+         */
+
+        const streamURL =
+            data.player_stream_url;
+
+        if (!streamURL) {
+
+            throw new Error(
+                "API did not return player_stream_url"
+            );
+        }
+
+        console.log(
+            "Player stream URL:",
+            streamURL
+        );
+
+        statusText.textContent =
+            "Loading HLS...";
+
+
+        /*
+         * Native HLS
+         */
+
+        if (
+            player.canPlayType(
+                "application/vnd.apple.mpegurl"
+            )
+        ) {
+
+            player.src =
+                streamURL;
+
+            try {
+
+                await player.play();
 
                 statusText.textContent =
                     "Playing.";
 
-            })
-            .catch((error) => {
+            } catch (error) {
 
                 console.error(
-                    "Native playback error:",
+                    "Native playback:",
                     error
                 );
 
                 statusText.textContent =
-                    "Stream loaded. Press Play.";
-            });
+                    "Ready. Press Play.";
+            }
 
-        return;
-    }
-
-
-    /*
-     * Chromium / Firefox/etc.
-     */
-
-    if (window.Hls && Hls.isSupported()) {
-
-        hls =
-            new Hls({
-                enableWorker: true
-            });
-
-        hls.loadSource(
-            streamURL
-        );
-
-        hls.attachMedia(
-            player
-        );
+            return;
+        }
 
 
-        hls.on(
-            Hls.Events.MANIFEST_PARSED,
-            () => {
+        /*
+         * HLS.js
+         */
 
-                console.log(
-                    "HLS manifest loaded."
-                );
+        if (
+            window.Hls &&
+            Hls.isSupported()
+        ) {
 
-                player.play()
-                    .then(() => {
+            hls =
+                new Hls({
+
+                    /*
+                     * Keep retries low while debugging
+                     * so one failure doesn't hammer
+                     * the Worker.
+                     */
+
+                    manifestLoadingMaxRetry: 1,
+                    levelLoadingMaxRetry: 1,
+                    fragLoadingMaxRetry: 1
+                });
+
+
+            hls.on(
+                Hls.Events.MANIFEST_LOADING,
+                (event, data) => {
+
+                    console.log(
+                        "Loading manifest:",
+                        data.url
+                    );
+                }
+            );
+
+
+            hls.on(
+                Hls.Events.MANIFEST_LOADED,
+                (event, data) => {
+
+                    console.log(
+                        "Manifest loaded:",
+                        data
+                    );
+                }
+            );
+
+
+            hls.on(
+                Hls.Events.MANIFEST_PARSED,
+                async () => {
+
+                    console.log(
+                        "HLS manifest parsed."
+                    );
+
+                    statusText.textContent =
+                        "Ready.";
+
+                    try {
+
+                        await player.play();
 
                         statusText.textContent =
                             "Playing.";
 
-                    })
-                    .catch((error) => {
+                    } catch (error) {
 
-                        console.error(
+                        console.log(
                             "Autoplay prevented:",
                             error
                         );
 
                         statusText.textContent =
                             "Ready. Press Play.";
-                    });
-            }
-        );
-
-
-        hls.on(
-            Hls.Events.ERROR,
-            (event, data) => {
-
-                console.error(
-                    "HLS ERROR:",
-                    data
-                );
-
-                if (data.fatal) {
-
-                    statusText.textContent =
-                        `HLS error: ${data.type}`;
-
-                    switch (data.type) {
-
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-
-                            console.error(
-                                "HLS network error."
-                            );
-
-                            break;
-
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-
-                            console.error(
-                                "HLS media error."
-                            );
-
-                            break;
-
-                        default:
-
-                            console.error(
-                                "Fatal HLS error."
-                            );
-
-                            destroyHLS();
-
-                            break;
                     }
                 }
-            }
+            );
+
+
+            hls.on(
+                Hls.Events.FRAG_LOADING,
+                (event, data) => {
+
+                    console.log(
+                        "Loading HLS fragment:",
+                        data.frag?.url
+                    );
+                }
+            );
+
+
+            hls.on(
+                Hls.Events.ERROR,
+                (event, data) => {
+
+                    console.error(
+                        "HLS ERROR:",
+                        data
+                    );
+
+                    console.error(
+                        "HLS ERROR TYPE:",
+                        data.type
+                    );
+
+                    console.error(
+                        "HLS ERROR DETAILS:",
+                        data.details
+                    );
+
+                    console.error(
+                        "HLS ERROR URL:",
+                        data.url
+                    );
+
+
+                    if (data.fatal) {
+
+                        statusText.textContent =
+                            `HLS error: ${data.type} / ${data.details}`;
+
+                    }
+                }
+            );
+
+
+            /*
+             * Start loading the HLS playlist.
+             */
+
+            hls.loadSource(
+                streamURL
+            );
+
+            hls.attachMedia(
+                player
+            );
+
+            return;
+        }
+
+
+        throw new Error(
+            "This browser does not support HLS playback."
         );
 
-        return;
+
+    } catch (error) {
+
+        console.error(
+            "Playback failed:",
+            error
+        );
+
+        statusText.textContent =
+            `Playback failed: ${error.message}`;
     }
-
-
-    /*
-     * No HLS support
-     */
-
-    statusText.textContent =
-        "This browser does not support HLS playback.";
 }
 
 
@@ -405,10 +526,13 @@ function destroyHLS() {
 
 document
     .getElementById("stopSong")
-    .addEventListener("click", () => {
+    .addEventListener(
+        "click",
+        () => {
 
-        stopPlayback();
-    });
+            stopPlayback();
+        }
+    );
 
 
 function stopPlayback() {
@@ -432,18 +556,25 @@ function stopPlayback() {
 
 document
     .getElementById("back10")
-    .addEventListener("click", () => {
+    .addEventListener(
+        "click",
+        () => {
 
-        if (!player.src) {
-            return;
+            if (
+                !Number.isFinite(
+                    player.currentTime
+                )
+            ) {
+                return;
+            }
+
+            player.currentTime =
+                Math.max(
+                    0,
+                    player.currentTime - 10
+                );
         }
-
-        player.currentTime =
-            Math.max(
-                0,
-                player.currentTime - 10
-            );
-    });
+    );
 
 
 /* =========================
@@ -452,18 +583,32 @@ document
 
 document
     .getElementById("forward10")
-    .addEventListener("click", () => {
+    .addEventListener(
+        "click",
+        () => {
 
-        if (!player.src) {
-            return;
+            if (
+                !Number.isFinite(
+                    player.currentTime
+                )
+            ) {
+                return;
+            }
+
+            const duration =
+                Number.isFinite(
+                    player.duration
+                )
+                    ? player.duration
+                    : Infinity;
+
+            player.currentTime =
+                Math.min(
+                    duration,
+                    player.currentTime + 10
+                );
         }
-
-        player.currentTime =
-            Math.min(
-                player.duration || Infinity,
-                player.currentTime + 10
-            );
-    });
+    );
 
 
 /* =========================
@@ -472,26 +617,32 @@ document
 
 document
     .getElementById("skipSong")
-    .addEventListener("click", () => {
+    .addEventListener(
+        "click",
+        () => {
 
-        if (
-            currentIndex >= 0 &&
-            currentIndex + 1 < searchResults.length
-        ) {
+            if (
+                currentIndex >= 0 &&
+                currentIndex + 1 <
+                    searchResults.length
+            ) {
 
-            playTrack(
-                searchResults[currentIndex + 1],
-                currentIndex + 1
-            );
+                playTrack(
+                    searchResults[
+                        currentIndex + 1
+                    ],
+                    currentIndex + 1
+                );
 
-        } else {
+            } else {
 
-            stopPlayback();
+                stopPlayback();
 
-            statusText.textContent =
-                "No next song.";
+                statusText.textContent =
+                    "No next song.";
+            }
         }
-    });
+    );
 
 
 /* =========================
@@ -504,11 +655,14 @@ player.addEventListener(
 
         if (
             currentIndex >= 0 &&
-            currentIndex + 1 < searchResults.length
+            currentIndex + 1 <
+                searchResults.length
         ) {
 
             playTrack(
-                searchResults[currentIndex + 1],
+                searchResults[
+                    currentIndex + 1
+                ],
                 currentIndex + 1
             );
         }
@@ -522,7 +676,7 @@ player.addEventListener(
 
 function saveContinueListening(track) {
 
-    let history;
+    let history = [];
 
     try {
 
@@ -540,7 +694,7 @@ function saveContinueListening(track) {
 
 
     /*
-     * Remove existing copy of this track.
+     * Remove duplicate.
      */
 
     history =
@@ -552,8 +706,7 @@ function saveContinueListening(track) {
 
 
     /*
-     * Save only metadata.
-     * No stream URL is stored.
+     * Store metadata only.
      */
 
     history.unshift({
@@ -579,7 +732,7 @@ function saveContinueListening(track) {
 
 
     /*
-     * Keep last 10.
+     * Keep the newest 10.
      */
 
     history =
@@ -598,7 +751,7 @@ function saveContinueListening(track) {
 
 function renderContinueListening() {
 
-    let history;
+    let history = [];
 
     try {
 
@@ -627,26 +780,30 @@ function renderContinueListening() {
     }
 
 
-    history.forEach((track) => {
+    history.forEach(
+        (track) => {
 
-        const wrapper =
-            document.createElement("div");
+            const wrapper =
+                document.createElement("div");
 
-        const button =
-            document.createElement("button");
+            const button =
+                document.createElement("button");
 
-        button.textContent =
-            `${track.track_name} — ${track.artist_name}`;
+            button.textContent =
+                `${track.track_name} — ${track.artist_name}`;
 
-        button.addEventListener(
-            "click",
-            () => playTrack(track)
-        );
+            button.addEventListener(
+                "click",
+                () => playTrack(track)
+            );
 
-        wrapper.appendChild(button);
+            wrapper.appendChild(button);
 
-        continueListening.appendChild(wrapper);
-    });
+            continueListening.appendChild(
+                wrapper
+            );
+        }
+    );
 }
 
 
