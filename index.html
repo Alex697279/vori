@@ -3,17 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ALMS Test Player</title>
+    <title>Music Player Test</title>
 </head>
+
 <body>
 
-<h1>Test Music Player</h1>
+<h1>Music Player Test</h1>
 
 <form id="searchForm">
     <input
         id="searchInput"
         type="text"
-        placeholder="Search for a song..."
+        placeholder="Search..."
         autocomplete="off"
     >
     <button type="submit">Go</button>
@@ -22,7 +23,7 @@
 <hr>
 
 <h2>Search Results</h2>
-<div id="results">Search for something.</div>
+<div id="results">Search for a song.</div>
 
 <hr>
 
@@ -37,19 +38,19 @@
     id="cover"
     width="200"
     height="200"
-    alt=""
+    alt="Album cover"
     style="display:none;"
 >
 
 <p id="nowPlaying">Nothing playing.</p>
 
-<audio id="player" controls></audio>
+<audio id="player" controls preload="none"></audio>
 
 <br><br>
 
-<button id="back10">↶ 10s</button>
+<button id="back10">↶ 10 seconds</button>
 <button id="skipSong">Skip Song</button>
-<button id="forward10">10s ↷</button>
+<button id="forward10">10 seconds ↷</button>
 <button id="stopSong">Stop</button>
 
 <p id="status"></p>
@@ -57,108 +58,169 @@
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 
 <script>
+
 const SEARCH_API =
     "https://search.alxhlms.workers.dev/search";
 
 const STREAM_API =
     "https://playback.alxhlms.workers.dev/stream";
 
-const player = document.getElementById("player");
-const results = document.getElementById("results");
-const continueListening = document.getElementById("continueListening");
-const nowPlaying = document.getElementById("nowPlaying");
-const cover = document.getElementById("cover");
-const statusText = document.getElementById("status");
+const player =
+    document.getElementById("player");
+
+const results =
+    document.getElementById("results");
+
+const continueListening =
+    document.getElementById("continueListening");
+
+const nowPlaying =
+    document.getElementById("nowPlaying");
+
+const cover =
+    document.getElementById("cover");
+
+const statusText =
+    document.getElementById("status");
 
 let hls = null;
 let currentTrack = null;
-let searchResults = [];
 let currentIndex = -1;
+let searchResults = [];
 
 
-/*
- * SEARCH
- */
+/* =========================
+   SEARCH
+========================= */
 
-document.getElementById("searchForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
+document
+    .getElementById("searchForm")
+    .addEventListener("submit", async (event) => {
 
-    const query = document.getElementById("searchInput").value.trim();
+        event.preventDefault();
 
-    if (!query) {
-        return;
-    }
+        const query =
+            document
+                .getElementById("searchInput")
+                .value
+                .trim();
 
-    results.textContent = "Searching...";
-    statusText.textContent = "";
-
-    try {
-        const response = await fetch(
-            `${SEARCH_API}?q=${encodeURIComponent(query)}`
-        );
-
-        if (!response.ok) {
-            throw new Error(`Search failed: HTTP ${response.status}`);
+        if (!query) {
+            return;
         }
 
-        const data = await response.json();
+        results.textContent = "Searching...";
+        statusText.textContent = "";
 
-        searchResults = data.results || [];
+        const url =
+            `${SEARCH_API}?q=${encodeURIComponent(query)}`;
 
-        renderResults();
+        console.log("Search URL:", url);
 
-    } catch (error) {
-        console.error(error);
-        results.textContent = "Search failed.";
-        statusText.textContent = error.message;
-    }
-});
+        try {
+
+            const response =
+                await fetch(url);
+
+            console.log(
+                "Search HTTP status:",
+                response.status
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    `Search returned HTTP ${response.status}`
+                );
+            }
+
+            const data =
+                await response.json();
+
+            console.log("Search response:", data);
+
+            searchResults =
+                data.results || [];
+
+            renderResults();
+
+        } catch (error) {
+
+            console.error(
+                "Search failed:",
+                error
+            );
+
+            results.textContent =
+                "Search failed.";
+
+            statusText.textContent =
+                error.message;
+        }
+    });
 
 
 function renderResults() {
+
     results.innerHTML = "";
 
     if (!searchResults.length) {
-        results.textContent = "No results.";
+
+        results.textContent =
+            "No results.";
+
         return;
     }
 
     searchResults.forEach((track, index) => {
-        const button = document.createElement("button");
+
+        const wrapper =
+            document.createElement("div");
+
+        const button =
+            document.createElement("button");
 
         button.textContent =
             `${track.track_name} — ${track.artist_name}`;
 
-        button.addEventListener("click", () => {
-            playTrack(track, index);
-        });
-
-        const wrapper = document.createElement("div");
+        button.addEventListener(
+            "click",
+            () => playTrack(track, index)
+        );
 
         wrapper.appendChild(button);
+
         results.appendChild(wrapper);
     });
 }
 
 
-/*
- * PLAYBACK
- */
+/* =========================
+   PLAY TRACK
+========================= */
 
-async function playTrack(track, index = -1) {
+function playTrack(track, index = -1) {
+
     currentTrack = track;
     currentIndex = index;
 
     nowPlaying.textContent =
         `${track.track_name} — ${track.artist_name}`;
 
-    statusText.textContent = "Loading...";
+    statusText.textContent =
+        "Loading stream...";
 
     if (track.cover_art_url) {
-        cover.src = track.cover_art_url;
-        cover.style.display = "block";
+
+        cover.src =
+            track.cover_art_url;
+
+        cover.style.display =
+            "block";
+
     } else {
-        cover.style.display = "none";
+
+        cover.style.display =
+            "none";
     }
 
     saveContinueListening(track);
@@ -166,228 +228,431 @@ async function playTrack(track, index = -1) {
     const streamURL =
         `${STREAM_API}/${encodeURIComponent(track.unique_id)}`;
 
-    stopHLS();
+    console.log(
+        "Stream URL:",
+        streamURL
+    );
+
+    destroyHLS();
 
     /*
-     * Native HLS support.
-     * Safari/iOS may enter here.
+     * Safari / browsers with native HLS
      */
 
-    if (player.canPlayType("application/vnd.apple.mpegurl")) {
-        player.src = streamURL;
+    if (
+        player.canPlayType(
+            "application/vnd.apple.mpegurl"
+        )
+    ) {
 
-        try {
-            await player.play();
-            statusText.textContent = "Playing.";
-        } catch (error) {
-            console.error(error);
-            statusText.textContent =
-                "Loaded the stream, but playback needs user interaction.";
-        }
+        player.src =
+            streamURL;
 
-        return;
-    }
+        player.play()
+            .then(() => {
 
-    /*
-     * Chromium/Firefox/etc.
-     * Use hls.js.
-     */
+                statusText.textContent =
+                    "Playing.";
 
-    if (Hls.isSupported()) {
-        hls = new Hls();
+            })
+            .catch((error) => {
 
-        hls.loadSource(streamURL);
-        hls.attachMedia(player);
+                console.error(
+                    "Native playback error:",
+                    error
+                );
 
-        hls.on(Hls.Events.MANIFEST_PARSED, async () => {
-            try {
-                await player.play();
-                statusText.textContent = "Playing.";
-            } catch (error) {
-                console.error(error);
                 statusText.textContent =
                     "Stream loaded. Press Play.";
-            }
-        });
-
-        hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error("HLS error:", data);
-
-            if (data.fatal) {
-                statusText.textContent =
-                    `HLS error: ${data.type}`;
-            }
-        });
+            });
 
         return;
     }
+
+
+    /*
+     * Chromium / Firefox/etc.
+     */
+
+    if (window.Hls && Hls.isSupported()) {
+
+        hls =
+            new Hls({
+                enableWorker: true
+            });
+
+        hls.loadSource(
+            streamURL
+        );
+
+        hls.attachMedia(
+            player
+        );
+
+
+        hls.on(
+            Hls.Events.MANIFEST_PARSED,
+            () => {
+
+                console.log(
+                    "HLS manifest loaded."
+                );
+
+                player.play()
+                    .then(() => {
+
+                        statusText.textContent =
+                            "Playing.";
+
+                    })
+                    .catch((error) => {
+
+                        console.error(
+                            "Autoplay prevented:",
+                            error
+                        );
+
+                        statusText.textContent =
+                            "Ready. Press Play.";
+                    });
+            }
+        );
+
+
+        hls.on(
+            Hls.Events.ERROR,
+            (event, data) => {
+
+                console.error(
+                    "HLS ERROR:",
+                    data
+                );
+
+                if (data.fatal) {
+
+                    statusText.textContent =
+                        `HLS error: ${data.type}`;
+
+                    switch (data.type) {
+
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+
+                            console.error(
+                                "HLS network error."
+                            );
+
+                            break;
+
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+
+                            console.error(
+                                "HLS media error."
+                            );
+
+                            break;
+
+                        default:
+
+                            console.error(
+                                "Fatal HLS error."
+                            );
+
+                            destroyHLS();
+
+                            break;
+                    }
+                }
+            }
+        );
+
+        return;
+    }
+
+
+    /*
+     * No HLS support
+     */
 
     statusText.textContent =
         "This browser does not support HLS playback.";
 }
 
 
-function stopHLS() {
+/* =========================
+   DESTROY HLS
+========================= */
+
+function destroyHLS() {
+
     if (hls) {
+
         hls.destroy();
+
         hls = null;
     }
 
     player.pause();
+
     player.removeAttribute("src");
+
     player.load();
 }
 
 
-/*
- * CONTINUE LISTENING
- */
+/* =========================
+   STOP
+========================= */
 
-function saveContinueListening(track) {
-    const history = JSON.parse(
-        localStorage.getItem("continueListening") || "[]"
-    );
+document
+    .getElementById("stopSong")
+    .addEventListener("click", () => {
 
-    const filtered = history.filter(
-        item => item.unique_id !== track.unique_id
-    );
-
-    filtered.unshift({
-        unique_id: track.unique_id,
-        track_name: track.track_name,
-        artist_name: track.artist_name,
-        album_name: track.album_name,
-        length_in_seconds: track.length_in_seconds,
-        cover_art_url: track.cover_art_url
+        stopPlayback();
     });
 
+
+function stopPlayback() {
+
+    destroyHLS();
+
+    currentTrack = null;
+    currentIndex = -1;
+
+    nowPlaying.textContent =
+        "Nothing playing.";
+
+    statusText.textContent =
+        "Stopped.";
+}
+
+
+/* =========================
+   BACK 10 SECONDS
+========================= */
+
+document
+    .getElementById("back10")
+    .addEventListener("click", () => {
+
+        if (!player.src) {
+            return;
+        }
+
+        player.currentTime =
+            Math.max(
+                0,
+                player.currentTime - 10
+            );
+    });
+
+
+/* =========================
+   FORWARD 10 SECONDS
+========================= */
+
+document
+    .getElementById("forward10")
+    .addEventListener("click", () => {
+
+        if (!player.src) {
+            return;
+        }
+
+        player.currentTime =
+            Math.min(
+                player.duration || Infinity,
+                player.currentTime + 10
+            );
+    });
+
+
+/* =========================
+   SKIP SONG
+========================= */
+
+document
+    .getElementById("skipSong")
+    .addEventListener("click", () => {
+
+        if (
+            currentIndex >= 0 &&
+            currentIndex + 1 < searchResults.length
+        ) {
+
+            playTrack(
+                searchResults[currentIndex + 1],
+                currentIndex + 1
+            );
+
+        } else {
+
+            stopPlayback();
+
+            statusText.textContent =
+                "No next song.";
+        }
+    });
+
+
+/* =========================
+   AUTO NEXT SONG
+========================= */
+
+player.addEventListener(
+    "ended",
+    () => {
+
+        if (
+            currentIndex >= 0 &&
+            currentIndex + 1 < searchResults.length
+        ) {
+
+            playTrack(
+                searchResults[currentIndex + 1],
+                currentIndex + 1
+            );
+        }
+    }
+);
+
+
+/* =========================
+   CONTINUE LISTENING
+========================= */
+
+function saveContinueListening(track) {
+
+    let history;
+
+    try {
+
+        history =
+            JSON.parse(
+                localStorage.getItem(
+                    "continueListening"
+                ) || "[]"
+            );
+
+    } catch {
+
+        history = [];
+    }
+
+
     /*
-     * Keep the last 10 tracks.
+     * Remove existing copy of this track.
      */
+
+    history =
+        history.filter(
+            item =>
+                item.unique_id !==
+                track.unique_id
+        );
+
+
+    /*
+     * Save only metadata.
+     * No stream URL is stored.
+     */
+
+    history.unshift({
+
+        unique_id:
+            track.unique_id,
+
+        track_name:
+            track.track_name,
+
+        artist_name:
+            track.artist_name,
+
+        album_name:
+            track.album_name,
+
+        length_in_seconds:
+            track.length_in_seconds,
+
+        cover_art_url:
+            track.cover_art_url
+    });
+
+
+    /*
+     * Keep last 10.
+     */
+
+    history =
+        history.slice(0, 10);
+
 
     localStorage.setItem(
         "continueListening",
-        JSON.stringify(filtered.slice(0, 10))
+        JSON.stringify(history)
     );
+
 
     renderContinueListening();
 }
 
 
 function renderContinueListening() {
-    const history = JSON.parse(
-        localStorage.getItem("continueListening") || "[]"
-    );
+
+    let history;
+
+    try {
+
+        history =
+            JSON.parse(
+                localStorage.getItem(
+                    "continueListening"
+                ) || "[]"
+            );
+
+    } catch {
+
+        history = [];
+    }
+
 
     continueListening.innerHTML = "";
 
+
     if (!history.length) {
-        continueListening.textContent = "Nothing here yet.";
+
+        continueListening.textContent =
+            "Nothing here yet.";
+
         return;
     }
 
-    history.forEach(track => {
-        const button = document.createElement("button");
+
+    history.forEach((track) => {
+
+        const wrapper =
+            document.createElement("div");
+
+        const button =
+            document.createElement("button");
 
         button.textContent =
             `${track.track_name} — ${track.artist_name}`;
 
-        button.addEventListener("click", () => {
-            playTrack(track);
-        });
-
-        const wrapper = document.createElement("div");
+        button.addEventListener(
+            "click",
+            () => playTrack(track)
+        );
 
         wrapper.appendChild(button);
+
         continueListening.appendChild(wrapper);
     });
 }
 
 
-/*
- * 10 SECOND SEEK
- */
-
-document.getElementById("back10").addEventListener("click", () => {
-    if (!player.src) return;
-
-    player.currentTime = Math.max(
-        0,
-        player.currentTime - 10
-    );
-});
-
-
-document.getElementById("forward10").addEventListener("click", () => {
-    if (!player.src) return;
-
-    player.currentTime = Math.min(
-        player.duration || Infinity,
-        player.currentTime + 10
-    );
-});
-
-
-/*
- * SKIP SONG
- */
-
-document.getElementById("skipSong").addEventListener("click", () => {
-    if (
-        currentIndex >= 0 &&
-        currentIndex + 1 < searchResults.length
-    ) {
-        playTrack(
-            searchResults[currentIndex + 1],
-            currentIndex + 1
-        );
-    } else {
-        stopPlayback();
-        statusText.textContent = "No next song.";
-    }
-});
-
-
-/*
- * STOP
- */
-
-document.getElementById("stopSong").addEventListener("click", () => {
-    stopPlayback();
-});
-
-
-function stopPlayback() {
-    stopHLS();
-
-    currentTrack = null;
-    currentIndex = -1;
-
-    nowPlaying.textContent = "Nothing playing.";
-    statusText.textContent = "Stopped.";
-}
-
-
-/*
- * AUTOMATICALLY GO TO NEXT SONG
- */
-
-player.addEventListener("ended", () => {
-    if (
-        currentIndex >= 0 &&
-        currentIndex + 1 < searchResults.length
-    ) {
-        playTrack(
-            searchResults[currentIndex + 1],
-            currentIndex + 1
-        );
-    }
-});
-
-
-/*
- * INITIAL LOAD
- */
+/* =========================
+   INITIALIZE
+========================= */
 
 renderContinueListening();
 
